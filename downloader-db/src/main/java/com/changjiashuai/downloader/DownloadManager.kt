@@ -1,6 +1,7 @@
 package com.changjiashuai.downloader
 
 import android.content.Context
+import android.util.Log
 import com.changjiashuai.downloader.callback.DownloadCallback
 import com.changjiashuai.downloader.model.DownloadInfo
 import com.changjiashuai.downloader.model.Status
@@ -20,7 +21,7 @@ class DownloadManager private constructor(private val context: Context) {
     companion object : SingletonHolder<DownloadManager, Context>(::DownloadManager)
 
     @Synchronized
-    fun init(url: String, path: String?, name: String?, childTaskCount: Int?) {
+    fun init(url: String, path: String, name: String, childTaskCount: Int = 0) {
         downloadInfo =
                 DownloadInfo(url = url, name = name, path = path, childTaskCount = childTaskCount)
     }
@@ -32,10 +33,12 @@ class DownloadManager private constructor(private val context: Context) {
         }
 
         val downloadTask = DownloadTask(context, downloadInfo)
+        downloadTask.downloadCallback = downloadCallback
 
         downloadInfoMap[downloadInfo.url!!] = downloadInfo
         downloadCallbackMap[downloadInfo.url!!] = downloadCallback
         downloadTaskMap[downloadInfo.url!!] = downloadTask
+
         ThreadPool.threadPoolExecutor.execute(downloadTask)
 
         //如果正在下载的任务数量等于线程池的核心线程数，则新添加的任务处于等待状态
@@ -62,12 +65,16 @@ class DownloadManager private constructor(private val context: Context) {
     }
 
     fun pause(url: String) {
-        if (downloadTaskMap.containsKey(url)) downloadTaskMap[url]?.pause()
+        if (downloadTaskMap.containsKey(url)) {
+            downloadTaskMap[url]?.pause()
+            Log.i("DownloadManager", "pause() status=${downloadTaskMap[url]?.mCurrentState}, url=$url")
+        }
     }
 
     fun resume(url: String) {
         if (downloadTaskMap.containsKey(url)) {
             downloadTaskMap[url]?.let {
+                Log.i("DownloadManager", "resume() status=${it.mCurrentState}, url=$url")
                 if (it.mCurrentState == Status.PAUSE || it.mCurrentState == Status.ERROR) {
                     downloadTaskMap.remove(url)
                     execute(downloadInfoMap[url]!!, downloadCallbackMap[url]!!)

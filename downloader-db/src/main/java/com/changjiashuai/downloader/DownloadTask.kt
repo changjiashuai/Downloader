@@ -1,6 +1,7 @@
 package com.changjiashuai.downloader
 
 import android.content.Context
+import android.util.Log
 import com.changjiashuai.downloader.callback.DownloadCallback
 import com.changjiashuai.downloader.db.DbManager
 import com.changjiashuai.downloader.ext.isNotServerFileChanged
@@ -38,7 +39,7 @@ class DownloadTask(private val context: Context, downloadInfo: DownloadInfo) : R
 
     var mCurrentState = Status.NONE
 
-    private var downloadCallback: DownloadCallback? = null
+    var downloadCallback: DownloadCallback? = null
 
     //记录已经下载的大小
     private var currentLength = 0L
@@ -72,9 +73,11 @@ class DownloadTask(private val context: Context, downloadInfo: DownloadInfo) : R
                 if (response.isSuccessful && response.isNotServerFileChanged()) {
                     tempFileTotalSize = EACH_TEMP_SIZE * downloadInfo.childTaskCount!!.toLong()
                     isSupportRange = true
+                    currentLength = downloadInfo.currentLength!!
+                    totalLength = downloadInfo.totalLength!!
                     onStart(
-                        downloadInfo.currentLength!!,
-                        downloadInfo.totalLength!!,
+                        currentLength,
+                        totalLength,
                         "",
                         isSupportRange
                     )
@@ -106,7 +109,8 @@ class DownloadTask(private val context: Context, downloadInfo: DownloadInfo) : R
             response.use {
                 val contentLength = response.body()?.contentLength()
                 isSupportRange = true
-                onStart(0, contentLength!!, response.lastModify()!!, isSupportRange)
+                totalLength = contentLength!!
+                onStart(0, totalLength, response.lastModify()!!, isSupportRange)
 
                 DbManager.getInstance(context).delete(url)
                 FileUtils.deleteFile(saveFile, tempFile)
@@ -180,8 +184,8 @@ class DownloadTask(private val context: Context, downloadInfo: DownloadInfo) : R
         val record = RandomAccessFile(tempFile, "rws")
         val channel = record.channel
         val buffer = channel.map(FileChannel.MapMode.READ_WRITE, 0, tempFileTotalSize)
-        val startBytes = longArrayOf()
-        val endBytes = longArrayOf()
+        val startBytes = LongArray(childTaskCount)
+        val endBytes = LongArray(childTaskCount)
         for (i in 0 until childTaskCount) {
             startBytes[i] = buffer.long
             endBytes[i] = buffer.long
@@ -246,7 +250,8 @@ class DownloadTask(private val context: Context, downloadInfo: DownloadInfo) : R
     private fun saveCommonFile(response: Response) {
         val contentLength = response.body()?.contentLength()
         isSupportRange = false
-        onStart(contentLength ?: -1, 0, "", isSupportRange)
+        totalLength = contentLength ?: -1
+        onStart(0, totalLength, "", isSupportRange)
         FileUtils.deleteFile(path, name)
         val file = FileUtils.createFile(path, name) ?: return
 
@@ -306,7 +311,7 @@ class DownloadTask(private val context: Context, downloadInfo: DownloadInfo) : R
         currentLength += length
 
         //TODO ???
-        if (System.currentTimeMillis() - lastProgressTime >= 20 || currentLength == totalLength) {
+        if (System.currentTimeMillis() - lastProgressTime >= 20 || currentLength <= totalLength) {
             downloadCallback?.onProgress(
                 currentLength,
                 totalLength,
@@ -373,7 +378,8 @@ class DownloadTask(private val context: Context, downloadInfo: DownloadInfo) : R
             downloadCallback?.onCancel()
             if (isNeedRestart) {
                 isNeedRestart = false
-                //TODO restart download
+                //TODO restart download ???
+                DownloadManager.getInstance(context).innerRestart(url)
             }
         }
     }
@@ -398,6 +404,7 @@ class DownloadTask(private val context: Context, downloadInfo: DownloadInfo) : R
         if (mCurrentState == Status.DOWNLOADING) {
             IS_PAUSE = true
             mCurrentState = Status.PAUSE
+            Log.i("DownloadTask", "pause() status = $mCurrentState")
         }
     }
 
